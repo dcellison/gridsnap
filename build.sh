@@ -2,8 +2,10 @@
 # Builds build/GridSnap.app (universal, macOS 14+). `./build.sh install` also copies it to /Applications,
 # `./build.sh release` zips it for a GitHub release.
 # No Xcode project: swiftc compiles every file in Sources/. Needs Command Line Tools with the macOS 26 SDK.
-# Signing: CODESIGN_IDENTITY, else a "GridSnap Dev" certificate if the keychain has one, else ad-hoc.
+# Signing: CODESIGN_IDENTITY, else a "Developer ID Application" certificate, else "GridSnap Dev", else ad-hoc.
 # Ad-hoc signatures change every build, which makes macOS forget the Accessibility grant (see README).
+# A Developer ID build gets the hardened runtime, and `release` notarizes and staples it.
+# Notary credentials come from the keychain profile NOTARY_PROFILE (default gridsnap-notary).
 cd "$(dirname "$0")"
 APP=build/GridSnap.app
 VERSION=0.1.4
@@ -26,8 +28,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
-IDENTITY="${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -o '"GridSnap Dev"' | head -1 | tr -d '"')}"
-codesign --force --sign "${IDENTITY:--}" "$APP"
+IDENTITY="${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -oE '"(Developer ID Application[^"]*|GridSnap Dev)"' | sort | head -1 | tr -d '"')}"
+case "$IDENTITY" in "Developer ID"*) SIGNFLAGS="--options runtime"; if [ "$1" = release ]; then SIGNFLAGS="$SIGNFLAGS --timestamp"; fi;; esac
+codesign --force $SIGNFLAGS --sign "${IDENTITY:--}" "$APP"
 echo "built $APP (signed: ${IDENTITY:-ad-hoc})"
-if [ "$1" = release ]; then ditto -c -k --keepParent "$APP" "build/GridSnap-$VERSION.zip"; echo "zipped build/GridSnap-$VERSION.zip  sha256 $(shasum -a 256 "build/GridSnap-$VERSION.zip" | cut -d' ' -f1)  (update Casks/gridsnap.rb in homebrew-tap)"; fi
+if [ "$1" = release ]; then
+  ZIP="build/GridSnap-$VERSION.zip"
+  ditto -c -k --keepParent "$APP" "$ZIP"
+  if [ -n "$SIGNFLAGS" ]; then
+    xcrun notarytool submit "$ZIP" --keychain-profile "${NOTARY_PROFILE:-gridsnap-notary}" --wait
+    xcrun stapler staple "$APP"
+    ditto -c -k --keepParent "$APP" "$ZIP"
+  fi
+  echo "zipped $ZIP  sha256 $(shasum -a 256 "$ZIP" | cut -d' ' -f1)  (update Casks/gridsnap.rb in homebrew-tap)"
+fi
 if [ "$1" = install ]; then rm -rf /Applications/GridSnap.app; cp -R "$APP" /Applications/; echo "installed /Applications/GridSnap.app"; fi
