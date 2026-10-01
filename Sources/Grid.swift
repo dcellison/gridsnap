@@ -21,6 +21,7 @@ final class GridView: NSView {
                       width: Double(s.x.count) / Double(cols), height: Double(s.y.count) / Double(rows))
     }
 
+    var ghosts: [NSRect] = []
     var original: (CGPoint, CGSize)?   // window frame at mouse-down, restored on cancel
     var selectionFrame: NSRect? { selectionFraction.map { screenFrame(fraction: $0, on: targetScreen) } }
     func preview() {   // live: the window follows the selection and snaps back when there is none
@@ -40,7 +41,7 @@ final class GridView: NSView {
     override func mouseDragged(with e: NSEvent) { track(e) }
     override func mouseUp(with e: NSEvent) {
         track(e); preview()   // a plain click never dragged, so apply here
-        if selection != nil, let w = targetWindow, let o = original { lastSnap = (w, o.0, o.1) }
+        if selection != nil, let w = targetWindow { remember(w); if let o = original { lastSnap = (w, o.0, o.1) } }
         let save = (e.modifierFlags.contains(.shift) || recordMode) ? selectionFraction : nil   // shift-release saves a preset
         hideGrid()
         if let f = save { newPreset(f) }
@@ -54,18 +55,29 @@ final class GridView: NSView {
         func gap(_ i: Int, _ n: Int) -> CGFloat {
             i == 0 || i == n ? 0 : (i * 2) % n == 0 ? 3 : (i * 3) % n == 0 || (i * 4) % n == 0 ? 1.5 : 0
         }
-        func rect(_ x: ClosedRange<Int>, _ y: ClosedRange<Int>) -> NSBezierPath {
-            let x0 = grid.minX + CGFloat(x.lowerBound) * cw + 2 + gap(x.lowerBound, cols)
-            let x1 = grid.minX + CGFloat(x.upperBound + 1) * cw - 2 - gap(x.upperBound + 1, cols)
-            let y0 = grid.minY + CGFloat(y.lowerBound) * ch + 2 + gap(y.lowerBound, rows)
-            let y1 = grid.minY + CGFloat(y.upperBound + 1) * ch - 2 - gap(y.upperBound + 1, rows)
+        func edge(_ c: CGFloat, _ n: Int, _ size: CGFloat, _ tol: CGFloat, _ sign: CGFloat) -> CGFloat {
+            let i = c.rounded()
+            return abs(c - i) <= tol ? i * size + sign * (2 + gap(Int(i), n)) : c * size
+        }
+        func path(_ r: NSRect, tolX: CGFloat = 0, tolY: CGFloat = 0) -> NSBezierPath {
+            let x0 = grid.minX + edge(r.minX, cols, cw, tolX, 1), x1 = grid.minX + edge(r.maxX, cols, cw, tolX, -1)
+            let y0 = grid.minY + edge(r.minY, rows, ch, tolY, 1), y1 = grid.minY + edge(r.maxY, rows, ch, tolY, -1)
             return NSBezierPath(roundedRect: NSRect(x: x0, y: y0, width: max(x1 - x0, 0), height: max(y1 - y0, 0)), xRadius: 4, yRadius: 4)
+        }
+        func rect(_ x: ClosedRange<Int>, _ y: ClosedRange<Int>) -> NSBezierPath {
+            path(NSRect(x: x.lowerBound, y: y.lowerBound, width: x.count, height: y.count))
         }
         for x in 0..<cols { for y in 0..<rows {
             let p = rect(x...x, y...y)
             NSColor.white.withAlphaComponent(0.10).setFill(); p.fill()
             NSColor.white.withAlphaComponent(0.20).setStroke(); p.stroke()
         }}
+        let v = targetScreen.visibleFrame, c = CGFloat(cols), r = CGFloat(rows)
+        for u in ghosts {
+            let p = path(NSRect(x: u.minX * c, y: u.minY * r, width: u.width * c, height: u.height * r), tolX: 2 * c / v.width, tolY: 2 * r / v.height)
+            NSColor.white.withAlphaComponent(0.25).setFill(); p.fill()
+            NSColor.white.withAlphaComponent(0.45).setStroke(); p.stroke()
+        }
         if let s = selection {
             let p = rect(s.x, s.y)
             NSColor.controlAccentColor.withAlphaComponent(0.85).setFill(); p.fill()
@@ -101,6 +113,7 @@ let panel: Panel = {
 func showGrid() {
     targetWindow = recordMode ? nil : pickTarget()   // before the panel appears; record mode moves nothing
     targetScreen = screenUnderCursor()
+    view.ghosts = ghostFractions(on: targetScreen)
     view.start = nil; view.end = nil; view.original = nil; view.needsDisplay = true
     let f = targetScreen.visibleFrame, w: CGFloat = 480, h = w * f.height / f.width
     panel.setFrame(NSRect(x: f.midX - w / 2, y: f.midY - h / 2, width: w, height: h), display: true)
