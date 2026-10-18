@@ -110,6 +110,7 @@ func ghostFractions(on screen: NSScreen) -> [NSRect] {
 
 var lastSnap: (win: AXUIElement, pos: CGPoint, size: CGSize)?
 func undoSnap() {
+    view.cancel()
     guard let s = lastSnap else { return }
     lastSnap = axFrame(s.win).map { (s.win, $0.0, $0.1) }   // pressing again redoes
     axSet(s.win, s.pos, s.size)

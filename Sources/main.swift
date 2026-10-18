@@ -9,7 +9,7 @@ _ = statusItem   // globals outside main.swift are lazy; touching it builds the 
 func startApp() {
     installHotKeyHandler()
     // clicks on other apps never reach the panel; a global monitor sees them and dismisses
-    NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in if panel.isVisible { hideGrid() } }
+    NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in view.cancel() }
 }
 
 if AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) {

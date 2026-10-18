@@ -45,12 +45,16 @@ open /Applications/GridSnap.app
 | Action | How |
 |---|---|
 | Show the grid | ⌃⌥D (change it in Settings) |
-| Snap | Click or drag cells, release |
+| Snap | Click or drag cells and release, or press Return |
+| Move the selection | Arrow keys |
+| Grow or shrink it | Shift+→ / Shift+↑ grow, Shift+← / Shift+↓ shrink |
 | Cancel | Esc, or drag outside the panel and release |
 | Dismiss | Click anywhere outside the grid |
-| Save a preset | Hold Shift when releasing, or use **+** in Settings |
+| Save a preset | Hold Shift when releasing or pressing Return, or use **+** in Settings |
 | Apply a preset | Its shortcut, or the Presets menu |
 | Undo last snap | ⌃⌥Z by default, press again to redo |
+
+The grid opens with the window's current cells outlined, so Return alone aligns it to the grid.
 
 The grid appears on the display under the cursor and the window snaps to that display, so moving the mouse to another monitor before pressing the shortcut moves the window there. Presets snap to the display the window is already on.
 

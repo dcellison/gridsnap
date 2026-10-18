@@ -1,7 +1,14 @@
 import Cocoa
 
+func cellRange(_ lo: CGFloat, _ hi: CGFloat, _ n: Int) -> ClosedRange<Int> {
+    let a = Int((lo * CGFloat(n)).rounded()), b = Int((hi * CGFloat(n)).rounded()) - 1
+    let c = min(max(Int((lo + hi) / 2 * CGFloat(n)), 0), n - 1)
+    return a <= b ? max(a, 0)...min(b, n - 1) : c...c
+}
+
 final class GridView: NSView {
     var start: (Int, Int)?, end: (Int, Int)?
+    var active = false, moved = false, pending = false
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }
 
@@ -22,31 +29,65 @@ final class GridView: NSView {
     }
 
     var ghosts: [NSRect] = []
-    var original: (CGPoint, CGSize)?   // window frame at mouse-down, restored on cancel
+    var original: (CGPoint, CGSize)?   // window frame when the grid opened, restored on cancel
     var selectionFrame: NSRect? { selectionFraction.map { screenFrame(fraction: $0, on: targetScreen) } }
     func preview() {   // live: the window follows the selection and snaps back when there is none
         guard let win = targetWindow else { return }
-        if let r = selectionFrame { applyFrame(win, r) } else if let o = original { axSet(win, o.0, o.1) }
+        if let r = selectionFrame { applyFrame(win, r); moved = true } else if moved, let o = original { axSet(win, o.0, o.1) }
     }
 
     override func mouseDown(with e: NSEvent) {
-        original = targetWindow.flatMap(axFrame)
-        start = cell(e); end = start; needsDisplay = true   // no preview yet: one cell is a tiny window, wait for the drag
+        guard active else { return }
+        start = cell(e); end = start; pending = false; needsDisplay = true   // no preview yet: one cell is a tiny window, wait for the drag
     }
     func track(_ e: NSEvent) {   // cursor outside the panel = no selection, so releasing there cancels
+        guard active else { return }
         let new = bounds.contains(convert(e.locationInWindow, from: nil)) ? cell(e) : nil
         guard new?.0 != end?.0 || new?.1 != end?.1 else { return }   // only hit AX when the cell changes
         end = new; needsDisplay = true; preview()
     }
     override func mouseDragged(with e: NSEvent) { track(e) }
-    override func mouseUp(with e: NSEvent) {
-        track(e); preview()   // a plain click never dragged, so apply here
-        if selection != nil, let w = targetWindow { remember(w); if let o = original { lastSnap = (w, o.0, o.1) } }
-        let save = (e.modifierFlags.contains(.shift) || recordMode) ? selectionFraction : nil   // shift-release saves a preset
-        hideGrid()
-        if let f = save { newPreset(f) }
+    override func mouseUp(with e: NSEvent) { track(e); commit(save: e.modifierFlags.contains(.shift)) }
+    override func keyDown(with e: NSEvent) {
+        guard active else { return }
+        if e.keyCode == 53 { cancel(); return }   // esc, also mid-drag
+        let shift = e.modifierFlags.contains(.shift)
+        switch e.specialKey {
+        case .carriageReturn?, .enter?: commit(save: shift)
+        case .leftArrow?: step(-1, 0, resize: shift)
+        case .rightArrow?: step(1, 0, resize: shift)
+        case .downArrow?: step(0, -1, resize: shift)
+        case .upArrow?: step(0, 1, resize: shift)
+        default: break
+        }
     }
-    override func keyDown(with e: NSEvent) { if e.keyCode == 53 { start = nil; end = nil; preview(); hideGrid() } } // esc, also mid-drag
+    func step(_ dx: Int, _ dy: Int, resize: Bool) {
+        var lo = (0, 0), hi = (cols - 1, rows - 1)
+        if let s = selection {
+            lo = (s.x.lowerBound, s.y.lowerBound); hi = (s.x.upperBound, s.y.upperBound)
+            if resize {
+                hi = (min(max(hi.0 + dx, lo.0), cols - 1), min(max(hi.1 + dy, lo.1), rows - 1))
+            } else {
+                let mx = min(max(dx, -lo.0), cols - 1 - hi.0), my = min(max(dy, -lo.1), rows - 1 - hi.1)
+                lo = (lo.0 + mx, lo.1 + my); hi = (hi.0 + mx, hi.1 + my)
+            }
+            if !pending, lo == (s.x.lowerBound, s.y.lowerBound), hi == (s.x.upperBound, s.y.upperBound) { return }
+        }
+        start = lo; end = hi; pending = false; needsDisplay = true; preview()
+    }
+    func commit(save: Bool) {
+        guard active else { return }
+        active = false
+        preview()
+        if selection != nil, let w = targetWindow { remember(w); if let o = original { lastSnap = (w, o.0, o.1) } }
+        let f = (save || recordMode) ? selectionFraction : nil   // shift saves a preset
+        hideGrid()
+        if let f { newPreset(f) }
+    }
+    func cancel() {
+        guard active else { return }
+        active = false; start = nil; end = nil; preview(); hideGrid()
+    }
 
     override func draw(_ dirty: NSRect) {
         guard !grid.isEmpty else { return }   // layer-backed views get drawn at zero size before the panel is shown
@@ -80,13 +121,16 @@ final class GridView: NSView {
         }
         if let s = selection {
             let p = rect(s.x, s.y)
-            NSColor.controlAccentColor.withAlphaComponent(0.85).setFill(); p.fill()
-            NSColor.white.withAlphaComponent(0.7).setStroke(); p.lineWidth = 1.5; p.stroke()
+            NSColor.controlAccentColor.withAlphaComponent(pending ? 0.3 : 0.85).setFill(); p.fill()
+            (pending ? NSColor.controlAccentColor : NSColor.white.withAlphaComponent(0.7)).setStroke(); p.lineWidth = pending ? 2 : 1.5; p.stroke()
         }
     }
 }
 
-final class Panel: NSPanel { override var canBecomeKey: Bool { true } }
+final class Panel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override func resignKey() { super.resignKey(); view.cancel() }
+}
 
 let view = GridView()
 let panel: Panel = {
@@ -113,17 +157,28 @@ let panel: Panel = {
 func showGrid() {
     targetWindow = recordMode ? nil : pickTarget()   // before the panel appears; record mode moves nothing
     targetScreen = screenUnderCursor()
+    view.original = targetWindow.flatMap(axFrame)
+    if view.original == nil { targetWindow = nil }
     view.ghosts = ghostFractions(on: targetScreen)
-    view.start = nil; view.end = nil; view.original = nil; view.needsDisplay = true
+    view.start = nil; view.end = nil; view.moved = false; view.pending = false; view.needsDisplay = true
+    if let o = view.original {
+        let r = NSRect(x: o.0.x, y: NSScreen.screens[0].frame.maxY - o.0.y - o.1.height, width: o.1.width, height: o.1.height)
+        let u = screenFraction(of: r, on: targetScreen)
+        if NSMouseInRect(NSPoint(x: r.midX, y: r.midY), targetScreen.frame, false), !u.isEmpty {
+            let x = cellRange(u.minX, u.maxX, cols), y = cellRange(u.minY, u.maxY, rows)
+            view.start = (x.lowerBound, y.lowerBound); view.end = (x.upperBound, y.upperBound); view.pending = true
+        }
+    }
     let f = targetScreen.visibleFrame, w: CGFloat = 480, h = w * f.height / f.width
     panel.setFrame(NSRect(x: f.midX - w / 2, y: f.midY - h / 2, width: w, height: h), display: true)
     view.frame = panel.contentView!.bounds
     panel.alphaValue = 0
+    view.active = true
     panel.makeKeyAndOrderFront(nil)
     panel.makeFirstResponder(view)
     NSAnimationContext.runAnimationGroup { $0.duration = 0.12; panel.animator().alphaValue = 1 }
 }
 func hideGrid() {
     recordMode = false
-    NSAnimationContext.runAnimationGroup({ $0.duration = 0.10; panel.animator().alphaValue = 0 }) { panel.orderOut(nil) }
+    NSAnimationContext.runAnimationGroup({ $0.duration = 0.10; panel.animator().alphaValue = 0 }) { if !view.active { panel.orderOut(nil) } }
 }
