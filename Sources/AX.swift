@@ -50,19 +50,36 @@ func applyFrame(_ win: AXUIElement, _ r: NSRect) {
     let pos = CGPoint(x: r.minX, y: top - r.maxY)
     axSet(win, pos, CGSize(width: r.width, height: r.height))
     guard let f = axFrame(win),
-          let v = NSScreen.screens.first(where: { NSMouseInRect(NSPoint(x: r.midX, y: r.midY), $0.frame, false) })?.visibleFrame else { return }
+          let screen = NSScreen.screens.first(where: { NSMouseInRect(NSPoint(x: r.midX, y: r.midY), $0.frame, false) }) else { return }
+    // Apps may round or reject the requested size, so constrain the size they actually accepted to the configured edge bounds.
+    let v = snapBounds(on: screen)
     let fit = CGPoint(x: max(min(pos.x, v.maxX - f.1.width), v.minX), y: max(min(pos.y, top - v.minY - f.1.height), top - v.maxY))
     if abs(fit.x - f.0.x) > 1 || abs(fit.y - f.0.y) > 1 { axSet(win, fit) }
 }
+// The usable snapping area is the visible screen frame after applying each independent outer inset.
+func snapBounds(on screen: NSScreen) -> NSRect {
+    let left = CGFloat(max(defaults.double(forKey: "edgeLeft"), 0))
+    let right = CGFloat(max(defaults.double(forKey: "edgeRight"), 0))
+    let top = CGFloat(max(defaults.double(forKey: "edgeTop"), 0))
+    let bottom = CGFloat(max(defaults.double(forKey: "edgeBottom"), 0))
+    let v = screen.visibleFrame
+    return NSRect(x: v.minX + left, y: v.minY + bottom,
+                  width: max(v.width - left - right, 0), height: max(v.height - top - bottom, 0))
+}
+// Expand by half the inter-window gap so screenFrame can inset every region uniformly while leaving outer edges at snapBounds.
+func snapFrame(on screen: NSScreen) -> NSRect {
+    let g = CGFloat(max(defaults.double(forKey: "gap"), 0)) / 2
+    return snapBounds(on: screen).insetBy(dx: -g, dy: -g)
+}
 func screenFrame(fraction r: NSRect, on screen: NSScreen) -> NSRect {
-    let g = CGFloat(max(defaults.double(forKey: "gap"), 0)) / 2   // half on the screen edge, half on each frame = one gap everywhere
-    let f = screen.visibleFrame.insetBy(dx: g, dy: g)
+    let g = CGFloat(max(defaults.double(forKey: "gap"), 0)) / 2   // half on each adjacent frame = one gap between windows
+    let f = snapFrame(on: screen)
     return NSRect(x: f.minX + r.minX * f.width, y: f.minY + r.minY * f.height,
                   width: r.width * f.width, height: r.height * f.height).insetBy(dx: g, dy: g)
 }
 func screenFraction(of r: NSRect, on screen: NSScreen) -> NSRect {
     let g = CGFloat(max(defaults.double(forKey: "gap"), 0)) / 2
-    let f = screen.visibleFrame.insetBy(dx: g, dy: g), r = r.insetBy(dx: -g, dy: -g)
+    let f = snapFrame(on: screen), r = r.insetBy(dx: -g, dy: -g)
     guard f.width > 0, f.height > 0 else { return .null }
     return NSRect(x: (r.minX - f.minX) / f.width, y: (r.minY - f.minY) / f.height, width: r.width / f.width, height: r.height / f.height)
         .intersection(NSRect(x: 0, y: 0, width: 1, height: 1))

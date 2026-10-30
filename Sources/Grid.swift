@@ -28,7 +28,7 @@ final class GridView: NSView {
                       width: Double(s.x.count) / Double(cols), height: Double(s.y.count) / Double(rows))
     }
 
-    var ghosts: [NSRect] = []
+    var ghosts: [NSRect] = []   // Previously snapped windows shown as outlines, not stacked translucent fills.
     var original: (CGPoint, CGSize)?   // window frame when the grid opened, restored on cancel
     var selectionFrame: NSRect? { selectionFraction.map { screenFrame(fraction: $0, on: targetScreen) } }
     func preview() {   // live: the window follows the selection and snaps back when there is none
@@ -92,36 +92,41 @@ final class GridView: NSView {
     override func draw(_ dirty: NSRect) {
         guard !grid.isEmpty else { return }   // layer-backed views get drawn at zero size before the panel is shown
         let cw = grid.width / CGFloat(cols), ch = grid.height / CGFloat(rows)
-        // extra gap at boundary i of n: halves widest, thirds/quarters narrower, everything else uniform
-        func gap(_ i: Int, _ n: Int) -> CGFloat {
-            i == 0 || i == n ? 0 : (i * 2) % n == 0 ? 3 : (i * 3) % n == 0 || (i * 4) % n == 0 ? 1.5 : 0
-        }
-        func edge(_ c: CGFloat, _ n: Int, _ size: CGFloat, _ tol: CGFloat, _ sign: CGFloat) -> CGFloat {
+        // Every integer cell boundary receives the same two-point inset, producing uniform four-point gutters.
+        func edge(_ c: CGFloat, _ size: CGFloat, _ tol: CGFloat, _ sign: CGFloat) -> CGFloat {
             let i = c.rounded()
-            return abs(c - i) <= tol ? i * size + sign * (2 + gap(Int(i), n)) : c * size
+            return abs(c - i) <= tol ? i * size + sign * 2 : c * size
         }
         func path(_ r: NSRect, tolX: CGFloat = 0, tolY: CGFloat = 0) -> NSBezierPath {
-            let x0 = grid.minX + edge(r.minX, cols, cw, tolX, 1), x1 = grid.minX + edge(r.maxX, cols, cw, tolX, -1)
-            let y0 = grid.minY + edge(r.minY, rows, ch, tolY, 1), y1 = grid.minY + edge(r.maxY, rows, ch, tolY, -1)
+            let x0 = grid.minX + edge(r.minX, cw, tolX, 1), x1 = grid.minX + edge(r.maxX, cw, tolX, -1)
+            let y0 = grid.minY + edge(r.minY, ch, tolY, 1), y1 = grid.minY + edge(r.maxY, ch, tolY, -1)
             return NSBezierPath(roundedRect: NSRect(x: x0, y: y0, width: max(x1 - x0, 0), height: max(y1 - y0, 0)), xRadius: 4, yRadius: 4)
         }
         func rect(_ x: ClosedRange<Int>, _ y: ClosedRange<Int>) -> NSBezierPath {
             path(NSRect(x: x.lowerBound, y: y.lowerBound, width: x.count, height: y.count))
         }
+        let selected = selection
         for x in 0..<cols { for y in 0..<rows {
             let p = rect(x...x, y...y)
             NSColor.white.withAlphaComponent(0.10).setFill(); p.fill()
-            NSColor.white.withAlphaComponent(0.20).setStroke(); p.stroke()
         }}
         let v = targetScreen.visibleFrame, c = CGFloat(cols), r = CGFloat(rows)
         for u in ghosts {
             let p = path(NSRect(x: u.minX * c, y: u.minY * r, width: u.width * c, height: u.height * r), tolX: 2 * c / v.width, tolY: 2 * r / v.height)
-            NSColor.white.withAlphaComponent(0.25).setFill(); p.fill()
-            NSColor.white.withAlphaComponent(0.45).setStroke(); p.stroke()
+            NSColor.white.withAlphaComponent(0.40).setStroke(); p.stroke()
         }
-        if let s = selection {
+        if let s = selected {
+            for x in s.x { for y in s.y {
+                let p = rect(x...x, y...y)
+                NSColor.controlAccentColor.withAlphaComponent(pending ? 0.4 : 0.85).setFill(); p.fill()
+            }}
+        }
+        for x in 0..<cols { for y in 0..<rows {
+            let p = rect(x...x, y...y)
+            NSColor.white.withAlphaComponent(0.25).setStroke(); p.stroke()
+        }}
+        if let s = selected {
             let p = rect(s.x, s.y)
-            NSColor.controlAccentColor.withAlphaComponent(pending ? 0.3 : 0.85).setFill(); p.fill()
             (pending ? NSColor.controlAccentColor : NSColor.white.withAlphaComponent(0.7)).setStroke(); p.lineWidth = pending ? 2 : 1.5; p.stroke()
         }
     }
@@ -169,7 +174,7 @@ func showGrid() {
             view.start = (x.lowerBound, y.lowerBound); view.end = (x.upperBound, y.upperBound); view.pending = true
         }
     }
-    let f = targetScreen.visibleFrame, w: CGFloat = 480, h = w * f.height / f.width
+    let f = snapBounds(on: targetScreen), w: CGFloat = 480, h = w * f.height / f.width   // Match the inset-adjusted snapping area.
     panel.setFrame(NSRect(x: f.midX - w / 2, y: f.midY - h / 2, width: w, height: h), display: true)
     view.frame = panel.contentView!.bounds
     panel.alphaValue = 0
