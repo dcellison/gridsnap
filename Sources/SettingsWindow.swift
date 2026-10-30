@@ -75,6 +75,18 @@ func settingRow(_ label: String, key: String, y: CGFloat, min: Double, max: Doub
     return [caption, field, stepper, unitLabel]
 }
 
+func edgeSetting(_ label: String, key: String, x: CGFloat, y: CGFloat, unit: String = "") -> [NSView] {
+    let caption = NSTextField(labelWithString: label)
+    caption.frame = NSRect(x: x, y: y + 6, width: 52, height: 20); caption.alignment = .right
+    let field = NSTextField(frame: NSRect(x: x + 58, y: y + 3, width: 45, height: 24))
+    let fmt = NumberFormatter(); fmt.minimum = 0; fmt.maximum = 64; field.formatter = fmt
+    let stepper = NSStepper(frame: NSRect(x: x + 105, y: y, width: 20, height: 28))
+    stepper.minValue = 0; stepper.maxValue = 64; stepper.increment = 1
+    for c in [field, stepper] as [NSControl] { c.bind(.value, to: NSUserDefaultsController.shared, withKeyPath: "values." + key, options: nil) }
+    let unitLabel = NSTextField(labelWithString: unit); unitLabel.frame = NSRect(x: x + 130, y: y + 6, width: 55, height: 20)
+    return [caption, field, stepper, unitLabel]
+}
+
 func shortcutRow(_ current: @escaping () -> (code: Int, mods: Int, label: String), keys: (String, String, String), isMain: Bool, y: CGFloat) -> ShortcutButton {
     let b = ShortcutButton.make(current())
     b.frame = NSRect(x: 115, y: y, width: 160, height: 32)
@@ -86,26 +98,26 @@ func shortcutRow(_ current: @escaping () -> (code: Int, mods: Int, label: String
     }
     return b
 }
-let shortcut = shortcutRow({ mainCombo }, keys: ("keyCode", "keyMods", "keyLabel"), isMain: true, y: 508)
-let undoShortcut = shortcutRow({ undoCombo }, keys: ("undoCode", "undoMods", "undoLabel"), isMain: false, y: 468)
+let shortcut = shortcutRow({ mainCombo }, keys: ("keyCode", "keyMods", "keyLabel"), isMain: true, y: 588)
+let undoShortcut = shortcutRow({ undoCombo }, keys: ("undoCode", "undoMods", "undoLabel"), isMain: false, y: 548)
 
 let prefs: NSWindow = {
-    let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 640), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     w.title = "GridSnap Settings"
     w.isReleasedWhenClosed = false
     let caption = NSTextField(labelWithString: "Show grid:")
-    caption.frame = NSRect(x: 20, y: 514, width: 90, height: 20); caption.alignment = .right
+    caption.frame = NSRect(x: 20, y: 594, width: 90, height: 20); caption.alignment = .right
     let targetCaption = NSTextField(labelWithString: "Target:")
-    targetCaption.frame = NSRect(x: 20, y: 326, width: 90, height: 20); targetCaption.alignment = .right
+    targetCaption.frame = NSRect(x: 20, y: 310, width: 90, height: 20); targetCaption.alignment = .right
     let focusedRadio = NSButton(radioButtonWithTitle: "Focused window", target: actions, action: #selector(MenuActions.pickTarget))
     let cursorRadio = NSButton(radioButtonWithTitle: "Window under cursor", target: actions, action: #selector(MenuActions.pickTarget))
-    focusedRadio.frame = NSRect(x: 118, y: 326, width: 170, height: 20)
-    cursorRadio.frame = NSRect(x: 118, y: 302, width: 170, height: 20); cursorRadio.tag = 1
+    focusedRadio.frame = NSRect(x: 118, y: 310, width: 170, height: 20)
+    cursorRadio.frame = NSRect(x: 118, y: 286, width: 170, height: 20); cursorRadio.tag = 1
     cursorRadio.toolTip = "Snap whatever window is under the mouse when the shortcut is pressed."
     (defaults.bool(forKey: "underCursor") ? cursorRadio : focusedRadio).state = .on   // same action + superview = one radio group
     let presetsCaption = NSTextField(labelWithString: "Presets")
-    presetsCaption.frame = NSRect(x: 20, y: 274, width: 200, height: 20); presetsCaption.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
-    let scroll = NSScrollView(frame: NSRect(x: 20, y: 48, width: 420, height: 218))
+    presetsCaption.frame = NSRect(x: 20, y: 258, width: 200, height: 20); presetsCaption.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+    let scroll = NSScrollView(frame: NSRect(x: 20, y: 48, width: 420, height: 202))
     scroll.documentView = presetTable; scroll.hasVerticalScroller = true; scroll.borderType = .bezelBorder
     presetTable.autoresizingMask = [.width]; presetTable.sizeLastColumnToFit()   // never wider than the visible area
     let plusMinus = NSSegmentedControl(labels: ["+", "−"], trackingMode: .momentary, target: actions, action: #selector(MenuActions.plusMinus))
@@ -113,11 +125,19 @@ let prefs: NSWindow = {
     plusMinus.setToolTip("Opens the grid: drag a region to save it as a preset. Shift-release on the grid does the same.", forSegment: 0)
     plusMinus.setToolTip("Removes the selected preset.", forSegment: 1)
     let undoCaption = NSTextField(labelWithString: "Undo snap:")
-    undoCaption.frame = NSRect(x: 20, y: 474, width: 90, height: 20); undoCaption.alignment = .right
-    let views = [caption, shortcut, undoCaption, undoShortcut, targetCaption, focusedRadio, cursorRadio, presetsCaption, scroll, plusMinus]
-        + settingRow("Columns:", key: "cols", y: 428, min: 1, max: 24, step: 1)
-        + settingRow("Rows:", key: "rows", y: 394, min: 1, max: 24, step: 1)
-        + settingRow("Gap:", key: "gap", y: 360, min: 0, max: 64, step: 2, unit: "points")
+    undoCaption.frame = NSRect(x: 20, y: 554, width: 90, height: 20); undoCaption.alignment = .right
+    let edgeCaption = NSTextField(labelWithString: "Screen edges:")
+    edgeCaption.frame = NSRect(x: 20, y: 410, width: 90, height: 20); edgeCaption.alignment = .right
+    let edgeHelp = NSTextField(labelWithString: "Insets from the visible screen area")
+    edgeHelp.frame = NSRect(x: 120, y: 410, width: 250, height: 20); edgeHelp.textColor = .secondaryLabelColor
+    let views = [caption, shortcut, undoCaption, undoShortcut, edgeCaption, edgeHelp, targetCaption, focusedRadio, cursorRadio, presetsCaption, scroll, plusMinus]
+        + settingRow("Columns:", key: "cols", y: 508, min: 1, max: 24, step: 1)
+        + settingRow("Rows:", key: "rows", y: 474, min: 1, max: 24, step: 1)
+        + settingRow("Gap:", key: "gap", y: 440, min: 0, max: 64, step: 2, unit: "points")
+        + edgeSetting("Left:", key: "edgeLeft", x: 60, y: 374)
+        + edgeSetting("Right:", key: "edgeRight", x: 240, y: 374, unit: "points")
+        + edgeSetting("Top:", key: "edgeTop", x: 60, y: 340)
+        + edgeSetting("Bottom:", key: "edgeBottom", x: 240, y: 340, unit: "points")
     for v in views { w.contentView?.addSubview(v) }
     NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: nil) { _ in
         ShortcutButton.active?.cancelRecording(); NSApp.hide(nil)   // give focus back
